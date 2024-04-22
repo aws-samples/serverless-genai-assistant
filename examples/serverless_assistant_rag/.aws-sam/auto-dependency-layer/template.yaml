@@ -1,0 +1,311 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: GenAI Assistant that uses streamed response
+Globals:
+  Function:
+    Timeout: 60
+Parameters:
+  LambdaVersionDescription:
+    Type: String
+    Default: '1'
+  KnowledgeBaseId:
+    Type: String
+    Default: CFJGQNA6RN
+Resources:
+  FastAPIFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: FastAPIFunction
+      Handler: run.sh
+      Runtime: python3.12
+      MemorySize: 512
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          AWS_LWA_INVOKE_MODE: response_stream
+          PORT: 8000
+          STATEMACHINE_STATE_MACHINE_ARN:
+            Fn::GetAtt:
+            - StateMachine
+            - Arn
+      Layers:
+      - Fn::Sub: arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:20
+      - Fn::GetAtt:
+        - AwsSamAutoDependencyLayerNestedStack
+        - Outputs.FastAPIFunctionead79d0dDepLayer
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+        InvokeMode: RESPONSE_STREAM
+      Policies:
+      - StepFunctionsExecutionPolicy:
+          StateMachineName:
+            Ref: StateMachine
+      - Statement:
+        - Effect: Allow
+          Action:
+          - states:StartSyncExecution
+          Resource:
+            Ref: StateMachine
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModelWithResponseStream
+          Resource:
+            Fn::Sub: arn:aws:bedrock:${AWS::Region}::foundation-model/*
+    Metadata:
+      SamResourceId: FastAPIFunction
+  StateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Definition:
+        Comment: A description of my state machine
+        StartAt: Parallel
+        States:
+          Parallel:
+            Type: Parallel
+            Next: Choice
+            Branches:
+            - StartAt: Validar Categoria A
+              States:
+                Validar Categoria A:
+                  Type: Task
+                  Resource: arn:aws:states:::bedrock:invokeModel
+                  Parameters:
+                    ModelId: arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+                    Body:
+                      anthropic_version: bedrock-2023-05-31
+                      system: "Voce e um assitente que tem como objetivo <objetivo>interpretar\
+                        \ a pergunta\ndo usuario e gerar palavras-chaves para serem\
+                        \ pesquisadas em uma base de documentos\ncom foco em Parceiros\
+                        \ AWS, geralmente os Parceiros pesquisam sobre competencia,\n\
+                        funding entre outros, mas lembre-se de entender o objetivo\
+                        \ da pergunta e selecionar\npalavras relacionadas</objetivo>\
+                        \ .Baseado na pergunta e no seu objetivo escolha\nate 10 palavras-chaves\
+                        \ relevantes para serem enviadas para base de busca semantica.\
+                        \ \nSeja direto e retorne apenas as palavras-chaves no idioma\
+                        \ ingl\xEAs, sem comentarios adicionais.\n"
+                      messages:
+                      - role: user
+                        content.$: $.promptInput
+                      max_tokens: 150
+                      temperature: 0.7
+                  End: true
+            - StartAt: Validar Categoria B
+              States:
+                Validar Categoria B:
+                  Type: Task
+                  Resource: arn:aws:states:::bedrock:invokeModel
+                  Parameters:
+                    ModelId: arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+                    Body:
+                      anthropic_version: bedrock-2023-05-31
+                      system: "Valide o contexto e a pergunta se o contexto for suficiente\
+                        \ para responder a pergunta, responder com valor numerico\
+                        \ 0,  se insuficiente responder com valor numerico 1. Seja\
+                        \ direto e retorne apenas o valor n\xFAmerico, sem coment\xE1\
+                        rios adicionais\n"
+                      messages:
+                      - role: user
+                        content.$: States.Format('<pergunta>{}</pergunta><contexto>{}</contexto>',
+                          $.promptInput, $.context)
+                      max_tokens: 15
+                      temperature: 0.3
+                  End: true
+            ResultPath: $.parallelInput
+          Choice:
+            Type: Choice
+            Choices:
+            - Variable: $.parallelInput[1].Body.content[0].text
+              StringEquals: '1'
+              Next: Retrieve
+            Default: Pass
+          Pass:
+            Type: Pass
+            End: true
+          Retrieve:
+            Type: Task
+            Parameters:
+              KnowledgeBaseId:
+                Fn::Sub: ${KnowledgeBaseId}
+              RetrievalQuery:
+                Text.$: States.Format('{} {}', $.promptInput, $.parallelInput[0].Body.content[0].text)
+            Resource: arn:aws:states:::aws-sdk:bedrockagentruntime:retrieve
+            End: true
+            ResultPath: $.retrievedData
+      Logging:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+        - CloudWatchLogsLogGroup:
+            LogGroupArn:
+              Fn::Sub: arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${StateMachineLogGroup}:*
+      Policies:
+      - AWSXrayWriteOnlyAccess
+      - Statement:
+        - Effect: Allow
+          Action:
+          - logs:CreateLogDelivery
+          - logs:GetLogDelivery
+          - logs:UpdateLogDelivery
+          - logs:DeleteLogDelivery
+          - logs:ListLogDeliveries
+          - logs:PutResourcePolicy
+          - logs:DescribeResourcePolicies
+          - logs:DescribeLogGroups
+          Resource: '*'
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:Retrieve
+          Resource:
+            Fn::Sub: arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          Resource:
+            Fn::Sub: arn:aws:bedrock:${AWS::Region}::foundation-model/*
+      Tracing:
+        Enabled: true
+      Type: EXPRESS
+      DefinitionSubstitutions:
+        LambdaFunction1:
+          Ref: AWS::NoValue
+  StateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/vendedlogs/states/${AWS::StackName}-StateMachine-Logs
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        DefaultCacheBehavior:
+          TargetOriginId: FastAPIFunctionOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+          - POST
+          - HEAD
+          - PATCH
+          - DELETE
+          - PUT
+          - GET
+          - OPTIONS
+          ForwardedValues:
+            QueryString: true
+            Headers:
+            - Origin
+            - Access-Control-Request-Headers
+            - Access-Control-Request-Method
+          LambdaFunctionAssociations:
+          - EventType: origin-request
+            LambdaFunctionARN:
+              Fn::Sub: ${Sigv4Sign.Arn}:${LambdaVersionDescription}
+            IncludeBody: true
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+        - Id: FastAPIFunctionOrigin
+          DomainName:
+            Fn::Select:
+            - 0
+            - Fn::Split:
+              - /
+              - Fn::Select:
+                - 1
+                - Fn::Split:
+                  - ://
+                  - Fn::GetAtt:
+                    - FastAPIFunctionUrl
+                    - FunctionUrl
+          CustomOriginConfig:
+            OriginProtocolPolicy: https-only
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+  Sigv4Sign:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description:
+        Fn::Sub: Stack ${AWS::StackName} Function Sigv4Sign
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+            - edgelambda.amazonaws.com
+          Action: sts:AssumeRole
+      CodeUri: Sigv4Sign
+      Handler: index.handler
+      Runtime: nodejs18.x
+      AutoPublishAlias: ongoing
+      VersionDescription: LambdaVersionDescription
+      MemorySize: 3008
+      Timeout: 30
+      Policies:
+      - LambdaInvokePolicy:
+          FunctionName:
+            Ref: FastAPIFunction
+      - Statement:
+        - Effect: Allow
+          Action:
+          - lambda:InvokeFunctionUrl
+          Resource:
+            Fn::GetAtt:
+            - FastAPIFunction
+            - Arn
+      Layers:
+      - Fn::GetAtt:
+        - AwsSamAutoDependencyLayerNestedStack
+        - Outputs.Sigv4Sign5479ee33DepLayer
+    Metadata:
+      SamResourceId: Sigv4Sign
+  Sigv4SignLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/${AWS::StackName}-Sigv4Sign
+  LambdaFastAPIFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: FastAPIFunction
+      Action: lambda:InvokeFunction
+      Principal: lambda.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - Sigv4Sign
+        - Arn
+  LambdaFastAPIFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: FastAPIFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: lambda.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - Sigv4Sign
+        - Arn
+  AwsSamAutoDependencyLayerNestedStack:
+    DeletionPolicy: Delete
+    Metadata:
+      CreatedBy: AWS SAM CLI sync command
+    Properties:
+      TemplateURL: /Users/gsleite/Documents/gsleite_agent/serverless-genai-assistant/.aws-sam/auto-dependency-layer/adl_nested_template.yaml
+    Type: AWS::CloudFormation::Stack
+Outputs:
+  TheFastAPIFunctionUrl:
+    Description: Function URL for FastAPI function
+    Value:
+      Fn::GetAtt:
+      - FastAPIFunctionUrl
+      - FunctionUrl
+  FastAPIFunction:
+    Description: FastAPI Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - FastAPIFunction
+      - Arn

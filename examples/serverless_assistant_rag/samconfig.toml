@@ -1,0 +1,20 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "GenAIAssistant"
+resolve_s3 = true
+s3_prefix = "GenAIAssistant"
+region = "us-east-1"
+profile = "burner"
+capabilities = "CAPABILITY_IAM"
+image_repositories = []
+parameter_overrides = "KnowledgeBaseId=\"KX56LIE8VG\""
+
+[ze_profile.deploy.parameters]
+stack_name = "tdsynnexgenai"
+resolve_s3 = true
+s3_prefix = "tdsynnexgenai"
+region = "us-east-1"
+profile = "amplifynewsletter"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "LambdaVersionDescription=\"1\" KnowledgeBaseId=\"CFJGQNA6RN\""
+image_repositories = []

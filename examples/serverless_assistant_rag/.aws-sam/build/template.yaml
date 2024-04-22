@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless GenAI Assistant combining Step Functions for orchestration
+  and Lambda for stream response.
+Globals:
+  Function:
+    Timeout: 60
+Parameters:
+  KnowledgeBaseId:
+    Type: String
+    Default: KX56LIE8VG
+Resources:
+  FastAPIFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: FastAPIFunction
+      Handler: run.sh
+      Runtime: python3.12
+      MemorySize: 512
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          AWS_LWA_INVOKE_MODE: response_stream
+          PORT: 8000
+          STATEMACHINE_STATE_MACHINE_ARN:
+            Fn::GetAtt:
+            - StateMachine
+            - Arn
+      Layers:
+      - Fn::Sub: arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:20
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+      Policies:
+      - StepFunctionsExecutionPolicy:
+          StateMachineName:
+            Ref: StateMachine
+      - Statement:
+        - Effect: Allow
+          Action:
+          - states:StartSyncExecution
+          Resource:
+            Ref: StateMachine
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModelWithResponseStream
+          Resource:
+            Fn::Sub: arn:aws:bedrock:${AWS::Region}::foundation-model/*
+    Metadata:
+      SamResourceId: FastAPIFunction
+  StateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: ../../statemachine/rag_parallel_tasks/RagGenAI.asl.json
+      Logging:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+        - CloudWatchLogsLogGroup:
+            LogGroupArn:
+              Fn::Sub: arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${StateMachineLogGroup}:*
+      Policies:
+      - AWSXrayWriteOnlyAccess
+      - Statement:
+        - Effect: Allow
+          Action:
+          - logs:CreateLogDelivery
+          - logs:GetLogDelivery
+          - logs:UpdateLogDelivery
+          - logs:DeleteLogDelivery
+          - logs:ListLogDeliveries
+          - logs:PutResourcePolicy
+          - logs:DescribeResourcePolicies
+          - logs:DescribeLogGroups
+          Resource: '*'
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:Retrieve
+          Resource:
+            Fn::Sub: arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          Resource:
+            Fn::Sub: arn:aws:bedrock:${AWS::Region}::foundation-model/*
+      Tracing:
+        Enabled: true
+      Type: EXPRESS
+      DefinitionSubstitutions:
+        KnowledgeBaseId:
+          Ref: KnowledgeBaseId
+  StateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/vendedlogs/states/${AWS::StackName}-StateMachine-Logs
+Outputs:
+  TheFastAPIFunctionUrl:
+    Description: Function URL for FastAPI function
+    Value:
+      Fn::Sub: ${FastAPIFunctionUrl.FunctionUrl}bedrock_claude_messages_api

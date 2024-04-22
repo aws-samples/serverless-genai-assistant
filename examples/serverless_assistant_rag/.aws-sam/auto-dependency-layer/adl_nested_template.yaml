@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS SAM CLI Nested Stack for Auto Dependency Layer Creation
+Metadata:
+  SamCliInfo: 1.103.0
+  key: AWS SAM CLI sync command
+Outputs:
+  FastAPIFunctionead79d0dDepLayer:
+    Value:
+      Ref: FastAPIFunctionead79d0dDepLayer
+  Sigv4Sign5479ee33DepLayer:
+    Value:
+      Ref: Sigv4Sign5479ee33DepLayer
+Resources:
+  FastAPIFunctionead79d0dDepLayer:
+    Metadata:
+      CreatedBy: AWS SAM CLI sync command
+    Properties:
+      CompatibleRuntimes:
+      - python3.12
+      ContentUri: /Users/gsleite/Documents/gsleite_agent/serverless-genai-assistant/.aws-sam/auto-dependency-layer/FastAPIFunctionead79d0dDepLayer
+      Description: Auto created layer for dependencies of function FastAPIFunction
+      LayerName: genaiassistantf8d73332-FastAPIFunctionead79d0d-DepLayer
+      RetentionPolicy: Delete
+    Type: AWS::Serverless::LayerVersion
+  Sigv4Sign5479ee33DepLayer:
+    Metadata:
+      CreatedBy: AWS SAM CLI sync command
+    Properties:
+      CompatibleRuntimes:
+      - nodejs18.x
+      ContentUri: /Users/gsleite/Documents/gsleite_agent/serverless-genai-assistant/.aws-sam/auto-dependency-layer/Sigv4Sign5479ee33DepLayer
+      Description: Auto created layer for dependencies of function Sigv4Sign
+      LayerName: genaiassistantf8d73332-Sigv4Sign5479ee33-DepLayer
+      RetentionPolicy: Delete
+    Type: AWS::Serverless::LayerVersion
+Transform: AWS::Serverless-2016-10-31

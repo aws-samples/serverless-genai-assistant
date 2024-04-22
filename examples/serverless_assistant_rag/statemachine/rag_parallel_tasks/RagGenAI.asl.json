@@ -1,0 +1,224 @@
+{
+  "Comment": "GenAI Workflow that parallel validates prompt rules and execute RAG using Bedrock Agents KB",
+  "StartAt": "Parallel",
+  "States": {
+    "Choice": {
+      "Choices": [
+        {
+          "Next": "Retrieve",
+          "StringEquals": "false",
+          "Variable": "$.ParallelInput[1].Body.content[0].text"
+        }
+      ],
+      "Default": "GenerateResponse",
+      "Type": "Choice"
+    },
+    "Parallel": {
+      "Branches": [
+        {
+          "StartAt": "Insert Keywords",
+          "Comment": "This state validate the user prompt and augment the content inserting keywords related to the topic. The KB will have more context",
+          "States": {
+            "Insert Keywords": {
+              "End": true,
+              "Parameters": {
+                "Body": {
+                  "anthropic_version": "bedrock-2023-05-31",
+                  "max_tokens": 150,
+                  "messages.$": "$.PromptInput[0, 1][*][*]",
+                  "system.$": "$.claude_params.task_1.system",
+                  "stop_sequences.$": "$.claude_params.task_1.stop_sequences",
+                  "temperature": 0.7
+                },
+                "ModelId": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+              },
+              "Resource": "arn:aws:states:::bedrock:invokeModel",
+              "Type": "Task"
+            }
+          }
+        },
+        {
+          "StartAt": "KB Policy",
+          "Comment": "Based on last KB data and context, validate if a new retrieve is necessary",
+          "States": {
+            "KB Policy": {
+              "End": true,
+              "Parameters": {
+                "Body": {
+                  "anthropic_version": "bedrock-2023-05-31",
+                  "max_tokens": 15,
+                  "messages.$": "$.PromptInput[0, 2][*][*]",
+                  "system.$": "$.claude_params.task_2.system",
+                  "stop_sequences.$": "$.claude_params.task_2.stop_sequences",
+                  "temperature": 0.3
+                },
+                "ModelId": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+              },
+              "Resource": "arn:aws:states:::bedrock:invokeModel",
+              "Type": "Task"
+            }
+          }
+        }
+      ],
+      "Next": "Choice",
+      "ResultPath": "$.ParallelInput",
+      "Type": "Parallel",
+      "Parameters": {
+        "claude_params": {
+          "task_1": {
+            "system": "Your instructions are <instructions>1. Read the user/assistant interaction history. 2. Based on the user last query and the conversation history, generate up to 10 keywords related to the user intent to augment the retrieval results of a semantic database. 3. Generate only the keywords  </instructions>",
+            "stop_sequences": [
+              "</keywords>"
+            ]
+          },
+          "task_2": {
+            "system": "Your instructions are <instructions>1. Read the user/assistant interaction history. 2. If the answer to the user's last query was clearly and detailed answered in the conversation history answer the boolean value true. 3. If the user's last query was not clearly and detailed answered, return the boolean value false. 4. Answer only with the boolean value true or false, don't provide any additional context.</instructions>",
+            "stop_sequences": [
+              "</boolean>"
+            ]
+          }
+        },
+        "PromptInput": [
+          {
+            "messages.$": "$.PromptInput"
+          },
+          {
+            "task_1": [
+              {
+                "role": "assistant",
+                "content": "<keywords>"
+              }
+            ]
+          },
+          {
+            "task_2": [
+              {
+                "role": "assistant",
+                "content": "Based on the context, the value is <boolean>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "Retrieve": {
+      "Next": "GenerateResponseKb",
+      "Parameters": {
+        "KnowledgeBaseId": "${KnowledgeBaseId}",
+        "RetrievalQuery": {
+          "Text.$": "States.Format('{}, {}', $.PromptInput[-1:].content, $.ParallelInput[0].Body.content[0].text)"
+        }
+      },
+      "Resource": "arn:aws:states:::aws-sdk:bedrockagentruntime:retrieve",
+      "ResultPath": "$.KnowledgeBaseData",
+      "Type": "Task",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "GenerateResponseKBError",
+          "ResultPath": "$.KnowledgeBaseData"
+        }
+      ],
+      "ResultSelector": {
+        "RetrievalResults.$": "$.RetrievalResults"
+      }
+    },
+    "GenerateResponse": {
+      "Comment": "Generates the Output Json for the caller",
+      "End": true,
+      "Type": "Pass",
+      "Parameters": {
+        "bedrock_details": {
+          "task_details": [
+            {
+              "task_name": "task0",
+              "task_model_id.$": "$.ParallelInput[0].Body.model",
+              "input_token.$": "$.ParallelInput[0].Body.usage.input_tokens",
+              "output_token.$": "$.ParallelInput[0].Body.usage.output_tokens"
+            },
+            {
+              "task_name": "task0",
+              "task_model_id.$": "$.ParallelInput[0].Body.model",
+              "input_token.$": "$.ParallelInput[0].Body.usage.input_tokens",
+              "output_token.$": "$.ParallelInput[0].Body.usage.output_tokens"
+            }
+          ],
+          "total_input_tokens.$": "States.MathAdd($.ParallelInput[0].Body.usage.input_tokens, $.ParallelInput[1].Body.usage.input_tokens)",
+          "total_output_tokens.$": "States.MathAdd($.ParallelInput[0].Body.usage.output_tokens, $.ParallelInput[1].Body.usage.output_tokens)"
+        },
+        "context_data": [],
+        "prompt_chain_data": {
+          "prompt": "No Data generated this time, this is likely due to a greeting, repeated user's query or the answer is already provided in the conversation history. Check carefully and do not invent any information. You can answer user greetings in a friendly way.",
+          "operation": "REPLACE_TAG",
+          "configuration": {
+            "replace_tag": "chain-information"
+        }
+      }
+    }
+  },
+  "GenerateResponseKb": {
+    "Comment": "Generates the Output Json for the caller",
+    "Type": "Pass",
+    "Parameters": {
+      "bedrock_details": {
+        "task_details": [
+          {
+            "task_name": "task0",
+            "task_model_id.$": "$.ParallelInput[0].Body.model",
+            "input_token.$": "$.ParallelInput[0].Body.usage.input_tokens",
+            "output_token.$": "$.ParallelInput[0].Body.usage.output_tokens"
+          },
+          {
+            "task_name": "task0",
+            "task_model_id.$": "$.ParallelInput[0].Body.model",
+            "input_token.$": "$.ParallelInput[0].Body.usage.input_tokens",
+            "output_token.$": "$.ParallelInput[0].Body.usage.output_tokens"
+          }
+        ],
+        "total_input_tokens.$": "States.MathAdd($.ParallelInput[0].Body.usage.input_tokens, $.ParallelInput[1].Body.usage.input_tokens)",
+        "total_output_tokens.$": "States.MathAdd($.ParallelInput[0].Body.usage.output_tokens, $.ParallelInput[1].Body.usage.output_tokens)"
+      },
+      "context_data.$": "$.KnowledgeBaseData.RetrievalResults"
+    },
+    "End": true
+  },
+  "GenerateResponseKBError": {
+    "Comment": "Generates the Output Json for KB error ",
+    "End": true,
+    "Type": "Pass",
+    "Parameters": {
+      "bedrock_details": {
+        "task_details": [
+          {
+            "task_name": "task0",
+            "task_model_id.$": "$.ParallelInput[0].Body.model",
+            "input_token.$": "$.ParallelInput[0].Body.usage.input_tokens",
+            "output_token.$": "$.ParallelInput[0].Body.usage.output_tokens"
+          },
+          {
+            "task_name": "task0",
+            "task_model_id.$": "$.ParallelInput[0].Body.model",
+            "input_token.$": "$.ParallelInput[0].Body.usage.input_tokens",
+            "output_token.$": "$.ParallelInput[0].Body.usage.output_tokens"
+          }
+        ],
+        "total_input_tokens.$": "States.MathAdd($.ParallelInput[0].Body.usage.input_tokens, $.ParallelInput[1].Body.usage.input_tokens)",
+        "total_output_tokens.$": "States.MathAdd($.ParallelInput[0].Body.usage.output_tokens, $.ParallelInput[1].Body.usage.output_tokens)"
+      },
+      "context_data": [
+        {
+          "Error.$": "$.KnowledgeBaseData.Error",
+          "Cause.$": "$.KnowledgeBaseData.Cause",
+          "Text": "Did you created the Bedrock KB? Check the URL: https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base-create.html"
+        }
+      ],
+      "prompt_chain_data": {
+        "prompt": "You are the last step of a prompt chain processing: You are unable to answer the user question due to a failure to retrieve API data. Inform the user about the error details in content below.",
+        "operation": "REPLACE_ALL"
+      }
+    }
+  }
+}
+}
