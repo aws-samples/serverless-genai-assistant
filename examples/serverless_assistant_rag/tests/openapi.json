@@ -1,0 +1,200 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Sample of a serverless GenAI assistant. it expects two objects. bedrock_parameters and assistant_parameters.\nwhile bedrock parameters holds the standar parameters of Bedrock invoke_model_with_response_stream\nthe assistant parameters object define behaviour about the integration between the lambda and step function\nthat allows the user to pass data between the invocations to enhance the llm response quality",
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/bedrock_claude_messages_api": {
+            "post": {
+                "summary": "Execute Chain",
+                "operationId": "execute_chain_bedrock_claude_messages_api_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_execute_chain_bedrock_claude_messages_api_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "AssistantParameters": {
+                "properties": {
+                    "content_tag": {
+                        "type": "string",
+                        "title": "Content Tag",
+                        "description": "the name of tag name that will wrap the retrieved content from step functions",
+                        "default": "DOCUMENT"
+                    },
+                    "messages_to_sample": {
+                        "type": "integer",
+                        "title": "Messages To Sample",
+                        "description": "Number of last message history that will be sent to the workflow",
+                        "default": "5"
+                    },
+                    "state_machine_custom_params": {
+                        "type": "object",
+                        "title": "State Machine Custom Params",
+                        "description": "Additional params to use as data in worflow",
+                        "default": {}
+                    }
+                },
+                "type": "object",
+                "title": "AssistantParameters"
+            },
+            "BedrockClaudeMessagesAPIRequest": {
+                "properties": {
+                    "anthropic_version": {
+                        "type": "string",
+                        "title": "Anthropic Version",
+                        "default": "bedrock-2023-05-31"
+                    },
+                    "messages": {
+                        "items": {
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "title": "Messages",
+                        "default": [
+                            {
+                                "role": "user",
+                                "content": "Who are you?"
+                            }
+                        ]
+                    },
+                    "temperature": {
+                        "type": "number",
+                        "title": "Temperature",
+                        "default": 1.0
+                    },
+                    "top_p": {
+                        "type": "number",
+                        "title": "Top P",
+                        "default": 0.999
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "title": "Top K",
+                        "default": 250
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "title": "Max Tokens",
+                        "default": 1028
+                    },
+                    "stop_sequences": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Stop Sequences",
+                        "default": [
+                            "\n\nHuman:"
+                        ]
+                    },
+                    "modelId": {
+                        "type": "string",
+                        "title": "Modelid",
+                        "default": "anthropic.claude-3-sonnet-20240229-v1:0"
+                    },
+                    "system": {
+                        "type": "string",
+                        "title": "System",
+                        "default": ""
+                    }
+                },
+                "type": "object",
+                "title": "BedrockClaudeMessagesAPIRequest",
+                "description": "This object defines the request body for the Amazon Bedrock using Claude messages API.\nClaude models that supports messaging API - https://docs.anthropic.com/claude/reference/messages,\nBedrock doc: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModelWithResponseStream.html"
+            },
+            "Body_execute_chain_bedrock_claude_messages_api_post": {
+                "properties": {
+                    "bedrock_parameters": {
+                        "$ref": "#/components/schemas/BedrockClaudeMessagesAPIRequest"
+                    },
+                    "assistant_parameters": {
+                        "$ref": "#/components/schemas/AssistantParameters"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "bedrock_parameters",
+                    "assistant_parameters"
+                ],
+                "title": "Body_execute_chain_bedrock_claude_messages_api_post"
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            }
+        }
+    }
+}
