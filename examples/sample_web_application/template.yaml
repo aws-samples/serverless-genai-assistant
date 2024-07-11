@@ -1,0 +1,348 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Example of a web app using the serverless assistant concept
+Globals:
+  Function:
+    Timeout: 60
+
+Parameters:
+  KnowledgeBaseId:
+    Type: String
+    Default: "Insert_your_Kb_id"
+  UserPoolClientId:
+    Type: String
+    Default: "Cognito User Pool Client ID"
+  UserPoolId:
+    Type: String
+    Default: "Cognito User Pool ID"
+
+Resources:
+
+#DynamoDB Table for Assistant configuration data store
+  AssistantConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-Config
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: item_type
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+        - AttributeName: item_type
+          KeyType: RANGE
+
+ #Lambda layer provides an interface to access config datasource
+  ConfigLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${AWS::StackName}-ConfigLayer
+      Description: Layer to provide access to datasource
+      ContentUri: dependencies/
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - x86_64
+
+  #Lambda implements Config Layer and manages API GW routes
+  ConfigHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: config_handler.lambda_handler
+      CodeUri: config_handler/
+      MemorySize: 512
+      Timeout: 10
+      Runtime: python3.12
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref AssistantConfigTable
+      Layers:
+        - !Ref ConfigLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AssistantConfigTable
+      Events:
+        GetAccountDetails:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfigApi
+            Path: /accounts/{accountID}/account
+            Method: GET
+            Auth:
+              Authorizer: OAuth2Authorizer
+
+        GetInferenceEndpoint:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfigApi
+            Path: /accounts/{accountID}/inference-endpoint
+            Method: GET
+            Auth:
+              Authorizer: OAuth2Authorizer
+
+        GetWorkflows:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfigApi
+            Path: /accounts/{accountID}/workflows
+            Method: GET
+            Auth:
+              Authorizer: OAuth2Authorizer
+
+        GetWorkflowDetails:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfigApi
+            Path: /accounts/{accountID}/workflows/{WorkflowID}
+            Method: GET
+            Auth:
+              Authorizer: OAuth2Authorizer
+
+        GetWorkflowPrompts:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfigApi
+            Path: /accounts/{accountID}/workflows/{WorkflowID}/prompts
+            Method: GET
+            Auth:
+              Authorizer: OAuth2Authorizer
+
+        GetWorkflowPrompt:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfigApi
+            Path: /accounts/{accountID}/workflows/{WorkflowID}/prompts/{PromptID}
+            Method: GET
+            Auth:
+              Authorizer: OAuth2Authorizer
+        SetConfig:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConfigApi
+            Path: /setconfiguration
+            Method: post
+            Auth:
+              Authorizer: OAuth2Authorizer
+
+  #API Gateway access to config data:
+  ConfigApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowHeaders:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+      Auth:
+        Authorizers:
+          OAuth2Authorizer:
+            AuthorizationScopes:
+              - aws.cognito.signin.user.admin
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              Audience:
+                - !Ref UserPoolClientId
+              Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
+        DefaultAuthorizer: OAuth2Authorizer
+
+#Core function
+  FastAPIFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: app/
+      Handler: run.sh
+      Runtime: python3.12
+      MemorySize: 1024
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          AWS_LWA_INVOKE_MODE: response_stream
+          PORT: 8000
+          STATEMACHINE_STATE_MACHINE_ARN: !GetAtt StateMachine.Arn
+          TABLE_NAME: !Ref AssistantConfigTable
+      Layers:
+        - !Sub arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:22
+        - !Ref ConfigLayer
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+        InvokeMode: RESPONSE_STREAM
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AssistantConfigTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:StartSyncExecution
+              Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:*
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModelWithResponseStream
+              Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/*
+
+  LambdaConfigHandlerPermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      Principal: apigateway.amazonaws.com
+      FunctionName: !Ref ConfigHandler
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ConfigApi}/*'
+
+#Will be deployed as a lambda@edge for JWT validation @ cloudfront
+  LambdaJWTVerify:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: aws-jwt-verify 4.0.1
+      AssumeRolePolicyDocument:
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+           {
+            "Effect": "Allow",
+            "Principal": {
+                "Service": [
+                    "lambda.amazonaws.com",
+                    "edgelambda.amazonaws.com"
+                ]
+            },
+            "Action": "sts:AssumeRole"
+           }
+          ]
+            }
+      CodeUri: lambda-jwt-verify/src/
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Timeout: 30
+
+      AutoPublishAlias: dev
+      VersionDescription: "1"
+
+  StateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/rag_parallel_tasks/RagGenAI.asl.json
+      Logging:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${StateMachineLogGroup}:*'
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'logs:CreateLogDelivery'
+                - 'logs:GetLogDelivery'
+                - 'logs:UpdateLogDelivery'
+                - 'logs:DeleteLogDelivery'
+                - 'logs:ListLogDeliveries'
+                - 'logs:PutResourcePolicy'
+                - 'logs:DescribeResourcePolicies'
+                - 'logs:DescribeLogGroups'
+              Resource: '*'
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'bedrock:Retrieve'
+              Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}'
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'bedrock:InvokeModel'
+              Resource: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
+      Tracing:
+        Enabled: true
+      Type: EXPRESS
+      DefinitionSubstitutions:
+        AWSRegion: !Sub '${AWS::Region}'
+        KnowledgeBaseId: !Ref KnowledgeBaseId
+
+  StateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/vendedlogs/states/${AWS::StackName}-StateMachine-Logs'
+
+#sigv4 for assistant core
+  CloudfrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Description: "Lambda OAC Signature"
+        Name: "Serverless Assistant OAC"
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        DefaultCacheBehavior:
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          ResponseHeadersPolicyId: 5cc3b908-e619-4b99-88e5-2cf7f45965bd
+          TargetOriginId: FastAPIFunctionOrigin
+          ViewerProtocolPolicy: https-only
+          AllowedMethods:
+            - "POST"
+            - "HEAD"
+            - "PATCH"
+            - "DELETE"
+            - "PUT"
+            - "GET"
+            - "OPTIONS"
+          LambdaFunctionAssociations:
+            - EventType: origin-request
+              LambdaFunctionARN: !Sub '${LambdaJWTVerify.Arn}:1'
+              IncludeBody: false
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - Id: FastAPIFunctionOrigin
+            DomainName: !Select [ 0, !Split [ '/', !Select [ 1, !Split [ '://', !GetAtt FastAPIFunctionUrl.FunctionUrl ] ] ] ]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+            OriginAccessControlId: !GetAtt CloudfrontOAC.Id
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  CloudFrontInvokeURLPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref FastAPIFunction
+      Principal: 'cloudfront.amazonaws.com'
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
+
+
+
+Outputs:
+  FastAPIFunction:
+    Description: FastAPI Lambda Function ARN
+    Value: !GetAtt FastAPIFunction.Arn
+
+  CloudfrontURL:
+    Description: CloudFront URl
+    Value: !Sub 'https://${Distribution.DomainName}/bedrock_converse_api'
+
+  ConfigUrl:
+    Description: API Gateway URL
+    Value: !Sub 'https://${ConfigApi}.execute-api.${AWS::Region}.amazonaws.com/'
+
+  StepFunctionArn:
+    Description: Step Function ARN
+    Value: !GetAtt StateMachine.Arn
+
+  DynamoDBTable:
+    Description: DynamoDB table name
+    Value: !Ref AssistantConfigTable

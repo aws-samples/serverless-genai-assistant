@@ -1,0 +1,15 @@
+{
+  "name": "aws-jwt-verify",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Gabriel Leite, Serverless GenAI Assistant - Application sample",
+  "license": "MIT-0",
+  "dependencies": {
+    "aws-jwt-verify": "^4.0.1"
+  }
+}

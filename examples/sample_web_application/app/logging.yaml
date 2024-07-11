@@ -1,0 +1,26 @@
+version: 1
+disable_existing_loggers: false
+
+# thanks to https://nuculabs.dev/p/fastapi-uvicorn-logging-in-production
+# This specification rewrites the logger handler to provide logging module
+# with lambda web adapter + uvicorn
+
+formatters:
+  standard:
+    format: "%(asctime)s - %(levelname)s - %(message)s"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: standard
+    stream: ext://sys.stdout
+
+loggers:
+  uvicorn:
+    error:
+      propagate: true
+
+root:
+  level: INFO
+  handlers: [console]
+  propagate: no
