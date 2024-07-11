@@ -26,7 +26,7 @@ This readme is in progress and wil be updated with more architecture details and
 
 The information is stored based on an `account_id` that can represents a user or multiple users. The is added as a custom attribute 
 in cognito and `account_id` is added to
-JWT token during the authentication phase on Cognito.
+JWT during the authentication phase on Cognito.
 
 | Category | Field            | Value                                                               | Description                                                                         |
 |----------|------------------|---------------------------------------------------------------------|-------------------------------------------------------------------------------------|
@@ -81,7 +81,7 @@ The solution is deployed in two parts:
 1. Amplify V2 (Frontend + Cognito)
 2. SAM Template (Backend)
 
-Note: It's planned to move the stack to CDK using Amplify. For now it's necessary to configure the integration between the 
+Note: It's planned to move the stack to CDK on Amplify. For now, it's necessary to configure the integration between the 
 stacks.
 
 ### Frontend Deployment (Amplify)
