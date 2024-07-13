@@ -132,11 +132,7 @@ watch(selectedWorkflowId, async (newWorkflowSelected) => {
       } catch (e) {
         console.log("Failed to populate Bedrock Converse API Parameters from Workflow configuration data")
       }
-    
-
   }
-
-
 })
 
 const showPanel = ref(true);

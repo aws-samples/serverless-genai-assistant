@@ -95,8 +95,11 @@ def build_system_context(system: str, system_chain_data: PromptChainParameters) 
     """Build system context based on the operation returned from the workflow"""
     logger.debug(f"Building system context with input: system='{system}', system_chain_data={system_chain_data}")
 
-    operation = system_chain_data.operation
-    system_chain_prompt = system_chain_data.system_chain_prompt
+    if system_chain_data is None:
+        return system
+    else:
+        operation = system_chain_data.operation
+        system_chain_prompt = system_chain_data.system_chain_prompt
 
     if operation == "APPEND":
         return f"{system}\n\n{system_chain_prompt}"

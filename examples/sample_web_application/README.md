@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Serverless GenAI Assistant is a demonstrate a pattern that combines serverless architecture with generative AI capabilities. This sample project demonstrates how to integrate this pattern showcasing both, frontend and backend components.
+The Serverless GenAI Assistant - Web Application Sample, demonstrates a pattern that combines serverless architecture with generative AI capabilities. This sample project demonstrates how to integrate this pattern showcasing both, frontend and backend components.
 
 To enable this UI the [deep-chat](https://github.com/OvidijusParsiunas/deep-chat) component is used to perform the chat conversation. The deep-chat component is a flexible solution that enables the integration of chatbot/genai APIs with a frontend component.
 To turn this integration possible it was necessary to create a [custom connection](https://deepchat.dev/docs/connect#request). Check the `ChatComponent.vue` if want to understand how it can be done.

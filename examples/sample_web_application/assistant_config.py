@@ -40,6 +40,27 @@ temporary_password += special_char[int(random() * len(special_char))]
 # generate a random uuid for account_id
 account_id = str(uuid.uuid4())
 
+system_prompt = """You are an expert research assistant. Here is a document you will answer questions about:
+<chain-information></chain-information>
+
+First, find the quotes from the document that are most relevant to answering the question, and then print them in numbered order. Quotes should be relatively short.
+
+If there are no relevant quotes, write “No relevant quotes” instead.
+
+Then, answer the question, starting with “Answer:“. Do not include or reference quoted content verbatim in the answer. Don’t say “According to Quote [1]” when answering. Instead make references to quotes relevant to each section of the answer solely by adding their bracketed numbers at the end of relevant sentences.
+
+Thus, the format of your overall response should look like what’s shown between the tags. Make sure to follow the formatting and spacing exactly.
+Quotes:
+[1] “Company X reported revenue of $12 million in 2021.”
+[2] “Almost 90% of revenue came from widget sales, with gadget sales making up the remaining 10%.”
+
+Answer:
+Company X earned $12 million. [1] Almost 90% of it was from widget sales. [2]
+
+
+If the question cannot be answered by the document, say so.
+"""
+
 # ConverseAPI Parameters for default workflow
 assistant_api_params = {"bedrock_converse_parameters": {
     "model_id": "anthropic.claude-3-sonnet-20240229-v1:0",
@@ -47,7 +68,7 @@ assistant_api_params = {"bedrock_converse_parameters": {
     "additional_model_fields": '{"top_k":200}',
     "additional_model_response_field_paths": "[/stop_sequences]",
     "system_prompts": [{
-        "text": "You are part of a prompt chain. You have access to content retrieved from the previous tasks. Provide answers to the user based on the context data provided and not on your general knowledge."
+        "text": system_prompt
     }]
 },
     "assistant_parameters": {
